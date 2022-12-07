@@ -1,0 +1,131 @@
+<?php
+
+
+ini_set("max_execution_time", '1800');
+ini_set('memory_limit', '1024M');
+
+require_once('../app/library/php-connect-rest-sample/vendor/autoload.php');
+use Microsoft\Graph\Connect\Constants;
+use Microsoft\Graph\Connect\DriveManager;
+
+require_once('../app/library/msgraph-sdk-php/vendor/autoload.php');
+use Microsoft\Graph\Graph;
+use Microsoft\Graph\Model;
+use Microsoft\Graph\Model\File;
+use GuzzleHttp\Client ;
+
+class FileuploadController extends ControllerBase
+{
+
+  var $ms_tenant =  MS_TENANT;
+    var $clientId = YOUR_CLIENT_ID;
+    var $clientSecret = YOUR_CLIENT_SECRET;
+    var $accessToken = "" ;
+    var $default_scope = 'anonymous';
+    var $username = YOUR_MS_SHAREPOINT_USERNAME;
+    var $password = YOUR_MS_SHAREPOINT_PASSWORD;
+    
+    public function msGetToken()
+    {
+        $guzzle = new Client();
+        $url = 'https://login.microsoftonline.com/' . $this->ms_tenant . '/oauth2/v2.0/token';
+        $token = json_decode($guzzle->post($url, [
+            'form_params' => [
+                'client_id' => $this->clientId,
+                'client_secret' => $this->clientSecret,
+                'username' => $this->username ,
+                'password' =>  $this->password ,
+                'scope' => 'https://graph.microsoft.com/.default',
+                'grant_type' => 'password',
+            ],
+        ])->getBody()->getContents());
+        $accessToken = $token->access_token;
+        // $accessToken = $this->accessToken;
+        // dd($accessToken);
+        return $accessToken ;
+    }
+    public function testlargefileAction()
+    {
+        // print_r('hello');exit;
+        // echo "Hi";
+        // die("hello");
+        //initialization
+        //$viewData = $this->loadViewData();
+
+        // Get the access token from the cache
+        $tokenCache = $this->msGetToken();
+        $tokenCache = "" ;
+
+        // $accessToken = $provider->getAccessToken();
+        try
+        {
+        // Create a Graph client
+        $graph = new Graph();
+        $graph->setAccessToken($this->msGetToken());
+        //upload larger files
+        $filename=  "testinglage".time().".pdf";
+        $reqBody=array(
+            "@microsoft.graph.conflictBehavior"=> "rename | fail | replace",
+            "description"=> "description",
+            "fileSystemInfo"=> ["@odata.type"=> "microsoft.graph.fileSystemInfo"]  ,
+                "name"=> $filename,
+            );
+                $uploadsession=$graph->createRequest("POST", "/drive/root:/".$filename.":/createUploadSession")
+                ->attachBody($reqBody)
+                ->setReturnType(Model\UploadSession::class)
+                ->execute();
+                //2. upload bytes
+                $fragSize =1024 * 1024 * 4;//320 * 1024;// 1024 * 1024 * 4;
+                $fileLocation = 'C:\\Users\\DeveloperPC\\Downloads\\largetest.pdf'; //your file path
+                //$uploadByte = "";
+                // check if exists file if not make one
+            if (file_exists($fileLocation)) 
+            {
+                $graph_url = $uploadsession->getUploadUrl();
+                $fileSize = filesize($fileLocation);
+                $numFragments = ceil($fileSize / $fragSize);
+                $bytesRemaining = $fileSize;
+                $i = 0;
+                while ($i < $numFragments) 
+                {
+                    $chunkSize = $numBytes = $fragSize;
+                    $start = $i * $fragSize;
+                    $end = $i * $fragSize + $chunkSize - 1;
+                    $offset = $i * $fragSize;
+                    if ($bytesRemaining < $chunkSize) 
+                    {
+                        $chunkSize = $numBytes = $bytesRemaining;
+                        $end = $fileSize - 1;
+                    }
+                    if ($stream = fopen($fileLocation, 'r')) {
+                        // get contents using offset
+                        $data = stream_get_contents($stream, $chunkSize, $offset);
+                        fclose($stream);
+                    }
+                    $content_range = "bytes " . $start . "-" . $end . "/" . $fileSize;
+                    $headers = array(
+                                "Content-Length"=> $numBytes,
+                                "Content-Range"=> $content_range
+                            );
+                    $uploadByte = $graph->createRequest("PUT", $graph_url)
+                            ->addHeaders($headers)
+                            ->attachBody($data)
+                            ->setReturnType(Model\UploadSession::class)
+                            ->setTimeout("10000")
+                            ->execute();
+                    $bytesRemaining = $bytesRemaining - $chunkSize;
+                    $i++;
+                }
+
+            }
+        }
+        catch(Exception $e)
+        {
+            print_r($e) ; exit; 
+        }
+        print("---------------------------------------------------------------------------------------------------------------------------------------------------------------------");
+        print_r($uploadByte);
+        exit; 
+    }
+    
+}
